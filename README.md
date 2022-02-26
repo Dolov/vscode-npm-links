@@ -1,6 +1,6 @@
-# npm-info README
+# npm-links README
 
-This is the README for your extension "npm-info". After writing up a brief description, we recommend including the following sections.
+This is the README for your extension "npm-links". After writing up a brief description, we recommend including the following sections.
 
 ## Features
 
