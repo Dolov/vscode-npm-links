@@ -6,12 +6,12 @@
   "engines": {
     "vscode": "^1.64.0"
   },
-  "publisher": "dolov",
+  "publisher": "Dolov",
   "repository": "https://github.com/Dolov/vscode-npm-links",
   "categories": [
     "Other"
   ],
-  "icon": "./images/icon.png",
+  "icon": "https://cdn.nlark.com/yuque/0/2022/png/116677/1645969155289-07b9c569-2577-4614-af35-b76f4918c8f9.png",
   "activationEvents": [
     "onStartupFinished"
   ],
