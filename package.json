@@ -11,6 +11,7 @@
   "categories": [
     "Other"
   ],
+  "icon": "./images/icon.png",
   "activationEvents": [
     "onStartupFinished"
   ],
