@@ -2,7 +2,7 @@
   "name": "npm-links",
   "displayName": "npm-links",
   "description": "npm 包相关链接",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.64.0"
   },
