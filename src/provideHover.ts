@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs'
 import * as path from 'path'
 import * as axios from 'axios'
+import * as babelParser from '@babel/parser'
 
 /** 缓存信息的文件名称 */
 const CACHE_FILE = `${__dirname}/packageInfoCacheFile.json`
@@ -88,11 +89,10 @@ const getHoverContent = async (packageName: string) => {
 	if (!info) return
 	const { name, description, links, author } = info
 	const { bugs, homepage, repository, npm } = links
-	
+
 	if (name !== pName) return
 	const github1s = repository?.replace('github.com', 'github1s.com')
 	const stackoverflow = `https://stackoverflow.com/search?q=${name}`
-	// return new vscode.Hover(`* **名称**：${content.name}\n* **版本**：${content.version}\n* **许可协议**：${content.license}`);
 	let content = `### 快捷链接\n`
 	if (description) {
 		content += `${name}: ${description}\n\n`
@@ -102,21 +102,21 @@ const getHoverContent = async (packageName: string) => {
 		content += `author: ${name}\n\n`
 	}
 	if (npm) {
-		content += `[npm](${npm})\n`
+		content += `[npm](${npm}) `
 	}
 	if (bugs) {
-		content += `[issues](${bugs})\n`
+		content += `| [issues](${bugs}) `
 	}
 	if (github1s) {
-		content += `[github1s](${github1s})\n`
+		content += `| [github1s](${github1s}) `
 	}
 	if (homepage) {
-		content += `[homepage](${homepage})\n`
+		content += `| [homepage](${homepage}) `
 	}
 	if (repository) {
-		content += `[repository](${repository})\n`
+		content += `| [repository](${repository}) `
 	}
-	content += `[stackoverflow](${stackoverflow}) `
+	content += `| [stackoverflow](${stackoverflow}) `
 	return new vscode.Hover(content);
 }
 
@@ -138,8 +138,42 @@ const jsonProvideHover = async (document: vscode.TextDocument, position: vscode.
 	return getHoverContent(hoverWord)
 }
 
+/**
+ * 脚本类文件 hover 逻辑
+ * @param document 
+ * @param position 
+ * @param token 
+ * @returns 
+ */
 const scriptProvideHover = (document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken) => {
-	return new vscode.Hover(`23456`);
+	const { fileName, getText, getWordRangeAtPosition } = document
+	const hoverWord = getText(getWordRangeAtPosition(position));
+	const linesText = getText().split('\n')
+	/** 获取含有 import from 的文本，避免直接使用 ast 耗费性能 */
+	const importFgs = linesText.filter(item => {
+		const fItem = item?.replace(/(^\s*)/g, "")
+		return (
+			fItem?.startsWith('import ') &&
+			fItem?.includes(' from ') &&
+			fItem?.includes(hoverWord) &&
+			hoverWord !== 'import' &&
+			hoverWord !== 'from'
+		)
+	})
+	if (importFgs.length === 0) return
+	const { line, character } = position
+	const lineText = linesText[line]
+	const ast = babelParser.parse(lineText, {
+		sourceType: 'module'
+	})
+	const importDeclarations = ast.program.body.filter((item: any) => item.type === "ImportDeclaration")
+	const target = importDeclarations.find((item: any) => {
+		const { loc, source } = item
+		const { end: { column: endColumn }, start: { column: startColumn } } = loc
+		return source.value?.includes(hoverWord) && startColumn < character && character < endColumn
+	})
+	if (!target) return
+	return getHoverContent(target.source.value)
 }
 
 const provideHover = (document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken) => {
@@ -147,10 +181,13 @@ const provideHover = (document: vscode.TextDocument, position: vscode.Position, 
 	if (languageId === 'json') {
 		return jsonProvideHover(document, position, token)
 	}
-	if (languageId?.includes('typescript')) {
-		scriptProvideHover(document, position, token)
+	if (
+		languageId?.includes('typescript') ||
+		languageId?.includes('javascript')
+	) {
+		return scriptProvideHover(document, position, token)
 	}
-	return new vscode.Hover(`23456`);
+	return undefined
 }
 
 
@@ -160,5 +197,4 @@ export default (context: vscode.ExtensionContext) => {
 	context.subscriptions.push(vscode.languages.registerHoverProvider('*', {
 		provideHover,
 	}));
-
 };
