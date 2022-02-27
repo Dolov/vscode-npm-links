@@ -6,6 +6,7 @@
   "engines": {
     "vscode": "^1.64.0"
   },
+  "repository": "https://github.com/Dolov/vscode-npm-links",
   "categories": [
     "Other"
   ],
