@@ -1,11 +1,38 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs'
-import * as path from 'path'
-import * as axios from 'axios'
-import * as babelParser from '@babel/parser'
+import * as fs from 'fs';
+import * as path from 'path';
+import * as axios from 'axios';
+import * as babelParser from '@babel/parser';
 
 /** 缓存信息的文件名称 */
-const CACHE_FILE = `${__dirname}/packageInfoCacheFile.json`
+const CACHE_FILE = `${__dirname}/packageInfoCacheFile.json`;
+
+const isRelativePath = (path: string) => {
+  const relativePathRegex = /^(?!\/|\\|[a-zA-Z]:).+/;
+  return relativePathRegex.test(path);
+};
+
+/** 获取鼠标所在位置的单词 */
+const getCursorWord = (line: string, position: vscode.Position) => {
+	let char = null;
+	for (let index = 0; index < line.length; index++) {
+		const element = line[index];
+		const tag = element === "'" || element === '"' || element === '`';
+		if (tag && index > position.character) {
+			break;
+		}
+		if (tag && index <= position.character) {
+			char = '';
+			continue;
+		}
+		if (char === null) {
+			continue;
+		}
+		char += element;
+	}
+	if (char === null) return "";
+	return char.replace(/^\s+|\s+$/g, "");
+};
 
 /** npm 包信息 */
 export interface NpmInfoProps {
@@ -34,19 +61,19 @@ export interface NpmInfoProps {
 	version: string;
 }
 
-/** 生成缓存文件 */
+/** 初始化缓存文件 */
 const genCacheFile = () => {
 	if (!fs.existsSync(CACHE_FILE)) {
 		fs.writeFile(CACHE_FILE, JSON.stringify({}), {
 			encoding: 'utf-8'
 		}, () => {
 			console.log('文件写入成功');
-		})
+		});
 	}
-}
+};
 
 /** 缓存信息，避免每次都加载 */
-let packageInfoCaches: Record<string, NpmInfoProps> | null = null
+let packageInfoCaches: Record<string, NpmInfoProps> | null = null;
 
 /**
  * 查询 npm 接口获取包信息，并写入缓存
@@ -55,88 +82,104 @@ let packageInfoCaches: Record<string, NpmInfoProps> | null = null
 const getPackageInfo = async (packageName: string) => {
 	/** 读取缓存文件 */
 	if (!packageInfoCaches) {
-		packageInfoCaches = eval('require(CACHE_FILE)') as Record<string, NpmInfoProps>
+		packageInfoCaches = eval('require(CACHE_FILE)') as Record<string, NpmInfoProps>;
 	}
+
+	const getData = async () => {
+		if (!packageInfoCaches) return;
+		const response = await axios.default((`https://proxy.clickapaas.com/api/npm-search?name=${packageName}`));
+		if (!response?.data?.length) return;
+		if (packageInfoCaches[packageName]?.version === response.data[0]?.version) return;
+		packageInfoCaches[packageName] = response.data[0];
+		if (Object.keys(packageInfoCaches).length > 1000) {
+			const first = Object.keys(packageInfoCaches)[0];
+			delete packageInfoCaches[first];
+		}
+		fs.writeFile(CACHE_FILE, JSON.stringify(packageInfoCaches, null, 2), {
+			'encoding': 'utf-8'
+		}, () => {
+			console.log(`${packageName} 写入缓存`);
+		});
+		return packageInfoCaches[packageName];
+	};
+
+	const dataPromise = getData();
 	/** 使用缓存数据 */
 	if (packageInfoCaches[packageName]) {
-		return packageInfoCaches[packageName]
+		console.log(`${packageName} 缓存生效`);
+		return packageInfoCaches[packageName];
 	}
-	/** 无缓存数据则请求 */
-	const response = await axios.default((`https://www.npmjs.com/search/suggestions?q=${packageName}`))
-	if (Array.isArray(response.data) && response.data.length > 0) {
-		packageInfoCaches[packageName] = response.data[0]
-		/** 写入缓存文件 */
-		if (Object.keys(packageInfoCaches).length <= 1000) {
-			fs.writeFile(CACHE_FILE, JSON.stringify({
-				...packageInfoCaches,
-				/** 写入时间戳，计算失效日期 */
-				timestamp: new Date().getTime()
-			}, null, 2), {
-				'encoding': 'utf-8'
-			}, () => {
-			})
-		}
-		return packageInfoCaches[packageName]
-	}
-	return null
-}
+	const info = await dataPromise.catch(err => {
+		console.log(`${packageName}-err:`, err);
+	});
+	return info;
+};
 
 /** 添加 hover 内容 */
 const getHoverContent = async (packageName: string) => {
-	// @ts-ignore
-	const pName = packageName.replaceAll(`"`, '')
-	const info = await getPackageInfo(pName)
-	if (!info) return
-	const { name, description, links, author } = info
-	const { bugs, homepage, repository, npm } = links
+	const info = await getPackageInfo(packageName);
+	if (!info) return;
+	const { name, description, links, author } = info;
+	const { bugs, homepage, repository, npm } = links;
 
-	if (name !== pName) return
-	const github1s = repository?.replace('github.com', 'github1s.com')
-	const stackoverflow = `https://stackoverflow.com/search?q=${name}`
-	let content = `### 快捷链接\n`
+	if (name !== packageName) return;
+	const github1s = repository?.replace('github.com', 'github1s.com');
+	const stackoverflow = `https://stackoverflow.com/search?q=${name}`;
+	let content = `### 快捷链接\n`;
 	if (description) {
-		content += `${name}: ${description}\n\n`
+		content += `${name}: ${description}\n\n`;
 	}
 	if (author && author.name) {
-		const { name } = author
-		content += `author: ${name}\n\n`
+		const { name } = author;
+		content += `author: ${name}\n\n`;
 	}
 	if (npm) {
-		content += `[npm](${npm}) `
+		content += `[npm](${npm}) `;
 	}
 	if (bugs) {
-		content += `| [issues](${bugs}) `
+		content += `| [issues](${bugs}) `;
 	}
 	if (github1s) {
-		content += `| [github1s](${github1s}) `
+		content += `| [github1s](${github1s}) `;
 	}
 	if (homepage) {
-		content += `| [homepage](${homepage}) `
+		content += `| [homepage](${homepage}) `;
 	}
 	if (repository) {
-		content += `| [repository](${repository}) `
+		content += `| [repository](${repository}) `;
 	}
-	content += `| [stackoverflow](${stackoverflow}) `
+	content += `| [stackoverflow](${stackoverflow}) `;
 	return new vscode.Hover(content);
-}
+};
 
 /**
- * json 文件 hover 逻辑
+ * package.json 文件 hover 逻辑
  * @param document 
  * @param position 
  * @param token 
  * @returns 
  */
 const jsonProvideHover = async (document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken) => {
-	const { fileName, getText, getWordRangeAtPosition } = document
-	const hoverWord = getText(getWordRangeAtPosition(position));
-	const isPackageJson = /\/package\.json$/.test(fileName)
-	if (!isPackageJson) return
-	const json = document.getText();
-	const inDeps = new RegExp(`"(dependencies|devDependencies|resolutions|peerDependencies)":\\s*?\\{[\\s\\S]*?${hoverWord.replace(/\//g, '\\/')}[\\s\\S]*?\\}`, 'gm').test(json)
-	if (!inDeps) return
-	return getHoverContent(hoverWord)
-}
+	const { fileName } = document;
+	const isPackageJson = /\/package\.json$/.test(fileName);
+	if (!isPackageJson) return;
+	const line = document.lineAt(position.line).text;
+	if (!line.includes(":")) return;
+	const newLine = line.endsWith(",") ? line.replace(",", ""): line;
+	const [packageName, packageVersion] = newLine.split(":");
+	const text = document.getText();
+	const jsonData = JSON.parse(text);
+	const deps = {
+		...jsonData["dependencies"],
+		...jsonData["devDependencies"],
+		...jsonData["resolutions"],
+		...jsonData["peerDependencies"],
+	};
+	const name = packageName.replace(/^\s+|\s+$/g, "").slice(1, -1);
+	const version = packageVersion.replace(/^\s+|\s+$/g, "").slice(1, -1);
+	if (deps[name] !== version) return;
+	return getHoverContent(name);
+};
 
 /**
  * 脚本类文件 hover 逻辑
@@ -146,54 +189,38 @@ const jsonProvideHover = async (document: vscode.TextDocument, position: vscode.
  * @returns 
  */
 const scriptProvideHover = (document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken) => {
-	const { fileName, getText, getWordRangeAtPosition } = document
-	const hoverWord = getText(getWordRangeAtPosition(position));
-	const linesText = getText().split('\n')
-	/** 获取含有 import from 的文本，避免直接使用 ast 耗费性能 */
-	const importFgs = linesText.filter(item => {
-		const fItem = item?.replace(/(^\s*)/g, "")
-		return (
-			fItem?.startsWith('import ') &&
-			fItem?.includes(' from ') &&
-			fItem?.includes(hoverWord) &&
-			hoverWord !== 'import' &&
-			hoverWord !== 'from'
-		)
-	})
-	if (importFgs.length === 0) return
-	const { line, character } = position
-	const lineText = linesText[line]
-	const ast = babelParser.parse(lineText, {
-		sourceType: 'module'
-	})
-	const importDeclarations = ast.program.body.filter((item: any) => item.type === "ImportDeclaration")
-	const target = importDeclarations.find((item: any) => {
-		const { loc, source } = item
-		const { end: { column: endColumn }, start: { column: startColumn } } = loc
-		return source.value?.includes(hoverWord) && startColumn < character && character < endColumn
-	})
-	if (!target) return
-	return getHoverContent(target.source.value)
-}
+	const line = document.lineAt(position.line).text;
+	const cmd = line.includes('require');
+	const esm = line.includes('import');
+	if (!cmd && !esm) return;
+	const packageName = getCursorWord(line, position);
+	if (!packageName) return;
+	if (
+		packageName.startsWith("/") ||
+		packageName.startsWith("./") ||
+		packageName.startsWith("../")
+	) return;
+	return getHoverContent(packageName);
+};
 
 const provideHover = (document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken) => {
-	const { languageId } = document
+	const { languageId } = document;
 	if (languageId === 'json') {
-		return jsonProvideHover(document, position, token)
+		return jsonProvideHover(document, position, token);
 	}
 	if (
 		languageId?.includes('typescript') ||
 		languageId?.includes('javascript')
 	) {
-		return scriptProvideHover(document, position, token)
+		return scriptProvideHover(document, position, token);
 	}
-	return undefined
-}
+	return undefined;
+};
 
 
 /** 注册鼠标悬停提示 */
 export default (context: vscode.ExtensionContext) => {
-	genCacheFile()
+	genCacheFile();
 	context.subscriptions.push(vscode.languages.registerHoverProvider('*', {
 		provideHover,
 	}));
