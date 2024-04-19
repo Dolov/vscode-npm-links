@@ -87,7 +87,7 @@ const getPackageInfo = async (packageName: string) => {
 
 	const getData = async () => {
 		if (!packageInfoCaches) return;
-		const response = await axios.default((`https://proxy.clickapaas.com/api/npm-search?name=${packageName}`));
+		const response = await axios.default((`https://proxy.freeless.cn/api/npm-search?name=${packageName}`));
 		if (!response?.data?.length) return;
 		if (packageInfoCaches[packageName]?.version === response.data[0]?.version) return;
 		packageInfoCaches[packageName] = response.data[0];
