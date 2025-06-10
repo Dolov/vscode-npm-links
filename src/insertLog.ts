@@ -46,8 +46,17 @@ const insertLog = async () => {
         logText + "\n"
       );
     });
+
+    // 光标定位到引号之间，方便输入内容
+    const newLine = position.line + 1;
+    const cursorPosition = new vscode.Position(
+      newLine,
+      nextIndent.length + "console.log('".length
+    );
+    editor.selection = new vscode.Selection(cursorPosition, cursorPosition);
     return;
   }
+
   // 正常插入带变量名的日志语句
   const logText = `${nextIndent}console.log('${varName}:', ${varName});`;
   await editor.edit((editBuilder) => {
@@ -56,6 +65,14 @@ const insertLog = async () => {
       logText + "\n"
     );
   });
+
+  // 选中第一个变量名（在引号中的变量名），方便修改描述
+  const newLine = position.line + 1;
+  const varNameStart = nextIndent.length + "console.log('".length;
+  const varNameEnd = varNameStart + varName.length;
+  const startPos = new vscode.Position(newLine, varNameStart);
+  const endPos = new vscode.Position(newLine, varNameEnd);
+  editor.selection = new vscode.Selection(startPos, endPos);
 };
 
 export default insertLog;
